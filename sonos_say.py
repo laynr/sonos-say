@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 import socket
 import threading
@@ -5,6 +6,7 @@ import time
 import http.server
 import socketserver
 import os
+import sys
 from gtts import gTTS
 import soco
 
@@ -43,7 +45,6 @@ def turn_off_leds(devices):
             if hasattr(device, 'status_light') and device.status_light:
                  device.status_light = False
         except Exception as e:
-            # print(f"Could not set LED for {device.player_name}: {e}")
             pass
 
 def is_home_theater(device):
@@ -128,17 +129,29 @@ def ungroup_all(devices):
 
 def main():
     parser = argparse.ArgumentParser(description="Make Sonos say something.")
+    
+    # Content Source
     parser.add_argument("text", nargs="*", help="Text to speak")
-    parser.add_argument("--device", "-d", help="Part of the Sonos device name to use (case-insensitive)")
-    parser.add_argument("--volume", "-v", type=int, help="Volume to set (0-100)")
+    parser.add_argument("--file", "-f", help="Read text from this file")
+    
+    # Target Selection
+    parser.add_argument("--device", "-d", "--target", "-t", dest="device", help="Target device name (e.g. 'Kitchen')")
     parser.add_argument("--list", "-l", action="store_true", help="List available devices and exit")
+    
+    # Playback Options
+    parser.add_argument("--volume", "-v", type=int, help="Volume to set (0-100)")
+    parser.add_argument("--lang", "-L", default="en", help="Language code for TTS (default: en)")
     
     args = parser.parse_args()
 
     # Discover Sonos
     print("Discovering Sonos devices...")
-    devices = list(soco.discover())
-    
+    try:
+        devices = list(soco.discover(timeout=2))
+    except Exception as e:
+        print(f"Discovery failed: {e}")
+        return
+
     if not devices:
         print("No Sonos devices found on the network.")
         return
@@ -154,7 +167,19 @@ def main():
     turn_off_leds(devices)
 
     # Determine text to say
-    text_to_say = " ".join(args.text)
+    text_to_say = ""
+    if args.file:
+        try:
+            with open(args.file, 'r') as f:
+                text_to_say = f.read().strip()
+            print(f"Read {len(text_to_say)} characters from {args.file}")
+        except Exception as e:
+            print(f"Error reading file: {e}")
+            return
+    else:
+        text_to_say = " ".join(args.text)
+
+    # Interactive Fallback
     if not text_to_say:
         try:
             text_to_say = input("Enter text to say: ").strip()
@@ -199,11 +224,11 @@ def main():
     else:
         coordinator = target_devices[0]
 
-    print(f"Preparing to say: '{text_to_say}' on '{coordinator.player_name}'")
+    print(f"Preparing to say on '{coordinator.player_name}': '{text_to_say[:50]}...'")
 
     # Generate Audio
     try:
-        tts = gTTS(text_to_say)
+        tts = gTTS(text_to_say, lang=args.lang)
         tts.save(AUDIO_FILE)
     except Exception as e:
         print(f"Error generating audio: {e}")
@@ -236,11 +261,9 @@ def main():
     try:
         coordinator.play_uri(audio_url)
         
-        # Wait for playback
-        # Heuristic: 3s + 0.4s per word. 
-        # Better: wait until state changes to STOPPED, but that requires polling.
-        # Simple wait is safer for "fire and forget".
-        wait_time = 3 + (len(text_to_say.split()) * 0.4)
+        # Wait for playback (heuristic)
+        # 3 seconds base + 0.1s per character (approx)
+        wait_time = 3 + (len(text_to_say) * 0.1)
         time.sleep(wait_time) 
         
     except Exception as e:
@@ -249,7 +272,8 @@ def main():
         if needs_ungroup:
             ungroup_all(target_devices)
         # Cleanup file
-        # os.remove(AUDIO_FILE)
+        if os.path.exists(AUDIO_FILE):
+             os.remove(AUDIO_FILE)
 
 if __name__ == "__main__":
     main()
