@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+import warnings
+import sys
+
+# Suppress urllib3 OpenSSL warning immediately
+try:
+    warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL")
+except Exception:
+    pass
+
 import argparse
 import socket
 import threading
@@ -6,8 +15,8 @@ import time
 import http.server
 import socketserver
 import os
-import sys
 from gtts import gTTS
+import gtts.lang
 import soco
 
 # Use port 0 to let the OS assign an available port
@@ -26,10 +35,15 @@ def get_local_ip():
         s.close()
     return IP
 
-def start_server(ready_event, port_container):
+def start_server(ready_event, port_container, directory=None):
     class Handler(http.server.SimpleHTTPRequestHandler):
         def log_message(self, format, *args):
             return # suppress logging
+        def __init__(self, *args, **kwargs):
+             if directory:
+                 super().__init__(*args, directory=directory, **kwargs)
+             else:
+                 super().__init__(*args, **kwargs)
 
     # Use port 0 for dynamic assignment
     with socketserver.TCPServer(("", 0), Handler) as httpd:
@@ -50,11 +64,6 @@ def turn_off_leds(devices):
 def is_home_theater(device):
     """Check if device is a home theater setup (has bonded speakers)."""
     try:
-        # A theater setup (Arc/Beam + Sub/Surrounds) appears as one device in discover()
-        # but has multiple members in its group even when "ungrouped" from other zones.
-        # However, soco group handling can be tricky. 
-        # If it's a coordinator and has >1 members, and those members share the same invisible ID...
-        # Simple heuristic: If it's a coordinator and group size > 1.
         return len(device.group.members) > 1 and device.is_coordinator
     except Exception:
         return False
@@ -127,26 +136,47 @@ def ungroup_all(devices):
         except Exception:
             pass
 
+def list_languages():
+    print("Supported Languages:")
+    try:
+        langs = gtts.lang.tts_langs()
+        # Sort by key
+        for code in sorted(langs.keys()):
+            print(f"  {code}: {langs[code]}")
+    except Exception as e:
+        print(f"Error fetching languages: {e}")
+
 def main():
     parser = argparse.ArgumentParser(description="Make Sonos say something.")
     
     # Content Source
+    # Note: text is positional, others are optional. We handle exclusivity manually.
     parser.add_argument("text", nargs="*", help="Text to speak")
     parser.add_argument("--file", "-f", help="Read text from this file")
-    
+    parser.add_argument("--play-file", "-pf", help="Play local audio file directly")
+    parser.add_argument("--play-url", "-pu", help="Play remote audio URL directly")
+    parser.add_argument("--languages", action="store_true", help="List supported TTS languages and exit")
+
     # Target Selection
     parser.add_argument("--device", "-d", "--target", "-t", dest="device", help="Target device name (e.g. 'Kitchen')")
     parser.add_argument("--list", "-l", action="store_true", help="List available devices and exit")
     
     # Playback Options
     parser.add_argument("--volume", "-v", type=int, help="Volume to set (0-100)")
-    parser.add_argument("--lang", "-L", default="en", help="Language code for TTS (default: en)")
+    parser.add_argument("--lang", "-L", default="en", help="Language code for TTS (default: en). See --languages.")
     
     args = parser.parse_args()
+
+    # Handle --languages
+    if args.languages:
+        list_languages()
+        return
 
     # Discover Sonos
     print("Discovering Sonos devices...")
     try:
+        # Suppress soco logging if any
+        # logging.getLogger("soco").setLevel(logging.WARNING) 
         devices = list(soco.discover(timeout=2))
     except Exception as e:
         print(f"Discovery failed: {e}")
@@ -166,30 +196,93 @@ def main():
     # Turn off LEDs on all found devices
     turn_off_leds(devices)
 
-    # Determine text to say
-    text_to_say = ""
-    if args.file:
-        try:
-            with open(args.file, 'r') as f:
-                text_to_say = f.read().strip()
-            print(f"Read {len(text_to_say)} characters from {args.file}")
-        except Exception as e:
-            print(f"Error reading file: {e}")
+    # Determine Audio Source
+    audio_url = None
+    server_thread = None
+    ready_event = None
+    port_container = {}
+    temp_files_to_cleanup = []
+
+    if args.play_url:
+        audio_url = args.play_url
+        print(f"Playing URL: {audio_url}")
+    elif args.play_file:
+        file_path = os.path.abspath(args.play_file)
+        if not os.path.exists(file_path):
+            print(f"Error: File '{args.play_file}' not found.")
             return
+        
+        # Start server serving the directory of the file
+        directory = os.path.dirname(file_path)
+        filename = os.path.basename(file_path)
+        
+        ready_event = threading.Event()
+        server_thread = threading.Thread(target=start_server, args=(ready_event, port_container, directory), daemon=True)
+        server_thread.start()
+        
+        if not ready_event.wait(timeout=5):
+            print("Error: Server failed to start.")
+            return
+        
+        local_ip = get_local_ip()
+        server_port = port_container.get('port')
+        audio_url = f"http://{local_ip}:{server_port}/{filename}"
+        print(f"Serving local file: {audio_url}")
+
     else:
-        text_to_say = " ".join(args.text)
+        # TTS mode
+        text_to_say = ""
+        if args.file:
+            try:
+                with open(args.file, 'r') as f:
+                    text_to_say = f.read().strip()
+                print(f"Read {len(text_to_say)} characters from {args.file}")
+            except Exception as e:
+                print(f"Error reading file: {e}")
+                return
+        else:
+            text_to_say = " ".join(args.text)
 
-    # Interactive Fallback
-    if not text_to_say:
+        # Interactive Fallback (only if no text and no file provided)
+        if not text_to_say:
+            try:
+                text_to_say = input("Enter text to say: ").strip()
+            except KeyboardInterrupt:
+                print("\nCancelled.")
+                return
+
+        if not text_to_say:
+            print("Nothing to say.")
+            return
+            
+        print(f"Preparing to say: '{text_to_say[:50]}...'")
+
+        # Generate Audio
         try:
-            text_to_say = input("Enter text to say: ").strip()
-        except KeyboardInterrupt:
-            print("\nCancelled.")
+            tts = gTTS(text_to_say, lang=args.lang)
+            tts.save(AUDIO_FILE)
+            temp_files_to_cleanup.append(AUDIO_FILE)
+        except ValueError as e:
+             print(f"Error generating audio: {e}")
+             print("Tip: Use --languages to see supported language codes.")
+             return
+        except Exception as e:
+            print(f"Error generating audio: {e}")
+            return
+        
+        # Start Server (current dir)
+        ready_event = threading.Event()
+        server_thread = threading.Thread(target=start_server, args=(ready_event, port_container), daemon=True)
+        server_thread.start()
+        
+        if not ready_event.wait(timeout=5):
+            print("Error: Server failed to start.")
             return
 
-    if not text_to_say:
-        print("Nothing to say.")
-        return
+        server_port = port_container.get('port')
+        local_ip = get_local_ip()
+        audio_url = f"http://{local_ip}:{server_port}/{AUDIO_FILE}"
+
 
     # Select target devices
     target_devices = []
@@ -224,30 +317,6 @@ def main():
     else:
         coordinator = target_devices[0]
 
-    print(f"Preparing to say on '{coordinator.player_name}': '{text_to_say[:50]}...'")
-
-    # Generate Audio
-    try:
-        tts = gTTS(text_to_say, lang=args.lang)
-        tts.save(AUDIO_FILE)
-    except Exception as e:
-        print(f"Error generating audio: {e}")
-        return
-    
-    # Start Server
-    ready_event = threading.Event()
-    port_container = {}
-    server_thread = threading.Thread(target=start_server, args=(ready_event, port_container), daemon=True)
-    server_thread.start()
-    
-    if not ready_event.wait(timeout=5):
-        print("Error: Server failed to start.")
-        return
-
-    server_port = port_container.get('port')
-    local_ip = get_local_ip()
-    audio_url = f"http://{local_ip}:{server_port}/{AUDIO_FILE}"
-
     # Set Volume
     if args.volume is not None:
         try:
@@ -261,9 +330,13 @@ def main():
     try:
         coordinator.play_uri(audio_url)
         
-        # Wait for playback (heuristic)
-        # 3 seconds base + 0.1s per character (approx)
-        wait_time = 3 + (len(text_to_say) * 0.1)
+        # Wait for playback (heuristic or fixed)
+        wait_time = 5
+        if args.play_url or args.play_file:
+            wait_time = 10 # Default wait for custom files
+        elif 'text_to_say' in locals():
+             wait_time = 3 + (len(text_to_say) * 0.1)
+             
         time.sleep(wait_time) 
         
     except Exception as e:
@@ -271,9 +344,11 @@ def main():
     finally:
         if needs_ungroup:
             ungroup_all(target_devices)
-        # Cleanup file
-        if os.path.exists(AUDIO_FILE):
-             os.remove(AUDIO_FILE)
+        
+        # Cleanup
+        for f in temp_files_to_cleanup:
+            if os.path.exists(f):
+                 os.remove(f)
 
 if __name__ == "__main__":
     main()

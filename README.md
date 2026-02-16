@@ -9,7 +9,7 @@ It automatically handles device discovery, grouping (including home theater setu
 - **Smart Grouping:** Automatically detects Home Theater setups (Arc/Beam) and uses them as the master coordinator.
 - **Auto-Sync:** Creates temporary groups to play on all speakers at once, then restores them.
 - **LED Control:** Automatically turns off status LEDs on all devices.
-- **Flexible Input:** Type a message, pipe text, or read from a file.
+- **Flexible Input:** Type a message, pipe text, read from a file, or play your own audio files.
 - **Multi-Language:** Supports different languages/accents via Google TTS.
 
 ## Quick Start
@@ -64,11 +64,34 @@ Run the script directly using `./sonos_say.py` (if executable) or `python3 sonos
 ./sonos_say.py --file announcement.txt
 ```
 
-**Speak with an accent (e.g., Australian English):**
+**Play a local audio file:**
 ```bash
-./sonos_say.py "G'day mate" --lang en-au
+./sonos_say.py --play-file ./my_sound.mp3
 ```
-*Supports standard language codes: en, en-us, en-uk, en-au, fr, es, de, etc.*
+
+**Play a remote URL (e.g., radio stream):**
+```bash
+./sonos_say.py --play-url http://stream.radioparadise.com/aac-320
+```
+
+**Speak with an accent or language:**
+```bash
+./sonos_say.py "Bonjour tout le monde" --lang fr
+```
+
+**List supported languages:**
+```bash
+./sonos_say.py --languages
+```
+*Common codes:*
+- `en`: English
+- `es`: Spanish
+- `fr`: French
+- `de`: German
+- `zh-cn`: Chinese (Simplified)
+- `zh-tw`: Chinese (Traditional)
+- `ja`: Japanese
+- `ko`: Korean
 
 **Set Volume:**
 ```bash
@@ -85,3 +108,4 @@ Run the script directly using `./sonos_say.py` (if executable) or `python3 sonos
 - **No devices found?** Ensure your computer is on the same Wi-Fi network as your Sonos system.
 - **Permission denied?** Run `chmod +x sonos_say.py` to make the script executable.
 - **Python not found?** Try running with `python3 sonos_say.py` instead of `./sonos_say.py`.
+- **SSL Warning?** The script automatically suppresses common SSL warnings on macOS.
