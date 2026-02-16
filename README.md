@@ -11,12 +11,14 @@ It automatically handles device discovery, grouping (including home theater setu
 - **LED Control:** Automatically turns off status LEDs on all devices.
 - **Flexible Input:** Type a message, pipe text, read from a file, or play your own audio files.
 - **Multi-Language:** Supports different languages/accents via Google TTS.
+- **Cross-Platform:** Works on Windows, macOS, and Linux.
 
 ## Quick Start
 
 ### Prerequisites
 - Python 3 installed.
 - Internet connection (for Google TTS).
+- **Windows Users:** You may need to allow "Python" through the Windows Firewall when prompted, as the tool runs a small local web server to send audio to your speakers.
 
 ### Installation
 
@@ -31,57 +33,57 @@ It automatically handles device discovery, grouping (including home theater setu
     pip install -r requirements.txt
     ```
 
-3.  **Make executable (optional):**
+3.  **(Optional - macOS/Linux only) Make executable:**
     ```bash
     chmod +x sonos_say.py
     ```
 
 ## Usage
 
-Run the script directly using `./sonos_say.py` (if executable) or `python3 sonos_say.py`.
+Run the script using Python:
 
 ### Basic Examples
 
 **Speak a message on all speakers (default):**
 ```bash
-./sonos_say.py "Dinner is ready!"
+python sonos_say.py "Dinner is ready!"
 ```
 
 **Speak on a specific device (e.g., Kitchen):**
 ```bash
-./sonos_say.py "Water is boiling" --target Kitchen
+python sonos_say.py "Water is boiling" --target Kitchen
 ```
 
 **Interactive Mode (prompts for text):**
 ```bash
-./sonos_say.py
+python sonos_say.py
 ```
 
 ### Advanced Usage
 
 **Read message from a file:**
 ```bash
-./sonos_say.py --file announcement.txt
+python sonos_say.py --file announcement.txt
 ```
 
 **Play a local audio file:**
 ```bash
-./sonos_say.py --play-file ./my_sound.mp3
+python sonos_say.py --play-file ./my_sound.mp3
 ```
 
 **Play a remote URL (e.g., radio stream):**
 ```bash
-./sonos_say.py --play-url http://stream.radioparadise.com/aac-320
+python sonos_say.py --play-url http://stream.radioparadise.com/aac-320
 ```
 
 **Speak with an accent or language:**
 ```bash
-./sonos_say.py "Bonjour tout le monde" --lang fr
+python sonos_say.py "Bonjour tout le monde" --lang fr
 ```
 
 **List supported languages:**
 ```bash
-./sonos_say.py --languages
+python sonos_say.py --languages
 ```
 *Common codes:*
 - `en`: English
@@ -95,17 +97,16 @@ Run the script directly using `./sonos_say.py` (if executable) or `python3 sonos
 
 **Set Volume:**
 ```bash
-./sonos_say.py "Wake up!" --volume 50
+python sonos_say.py "Wake up!" --volume 50
 ```
 
 **List available devices:**
 ```bash
-./sonos_say.py --list
+python sonos_say.py --list
 ```
 
 ## Troubleshooting
 
 - **No devices found?** Ensure your computer is on the same Wi-Fi network as your Sonos system.
-- **Permission denied?** Run `chmod +x sonos_say.py` to make the script executable.
-- **Python not found?** Try running with `python3 sonos_say.py` instead of `./sonos_say.py`.
+- **Windows Firewall:** If devices are found but audio doesn't play, check your Windows Firewall settings to ensure Python can accept incoming connections (required for the HTTP server).
 - **SSL Warning?** The script automatically suppresses common SSL warnings on macOS.
